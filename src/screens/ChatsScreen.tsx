@@ -240,6 +240,7 @@ function ChatView({ conversation, onBack }: { conversation: ConversationWithMeta
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [writeAsOffice, setWriteAsOffice] = useState(false);
   const [myOffices, setMyOffices] = useState<Office[]>([]);
   const [selectedOffice, setSelectedOffice] = useState<Office | null>(null);
@@ -333,8 +334,9 @@ function ChatView({ conversation, onBack }: { conversation: ConversationWithMeta
   async function sendMessage() {
     if (!input.trim() || !profile) return;
     setSending(true);
+    setSendError(null);
     const office = writeAsOffice ? selectedOffice : null;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('messages')
       .insert({
         conversation_id: conversation.id,
@@ -345,7 +347,9 @@ function ChatView({ conversation, onBack }: { conversation: ConversationWithMeta
       })
       .select()
       .single();
-    if (data) {
+    if (error || !data) {
+      setSendError('Die Nachricht konnte nicht gesendet werden. Bitte versuche es erneut.');
+    } else {
       setMessages((prev) => [...prev, data as Message]);
       setInput('');
     }
@@ -459,6 +463,7 @@ function ChatView({ conversation, onBack }: { conversation: ConversationWithMeta
 
       {/* Eingabe */}
       <div className="border-t border-cream-200 bg-white px-3 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+        {sendError && <p className="text-xs text-red-600 mb-2 px-1">{sendError}</p>}
         <div className="flex items-center gap-2">
           <input
             className="flex-1 rounded-2xl border border-sage-200 bg-cream-50 px-4 py-2.5 text-sm text-sage-900 placeholder-sage-300 focus:outline-none focus:ring-2 focus:ring-brand-400"
@@ -496,6 +501,7 @@ function NewChatDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -512,103 +518,32 @@ function NewChatDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
   async function createConversation() {
     if (!profile) return;
     setCreating(true);
+    setError(null);
 
-    if (mode === 'direct') {
-      if (selectedUsers.size !== 1) { setCreating(false); return; }
-      const otherId = Array.from(selectedUsers)[0];
+    const payload = mode === 'direct'
+      ? { type: 'direct', title: null, groupId: null, memberIds: Array.from(selectedUsers) }
+      : selectedGroupId
+        ? { type: 'group', title: groupTitle, groupId: selectedGroupId, memberIds: [] }
+        : {
+            type: 'group',
+            title: groupTitle || `Gruppe (${selectedUsers.size + 1})`,
+            groupId: null,
+            memberIds: Array.from(selectedUsers),
+          };
 
-      // Prüfen ob schon ein Direktchat existiert
-      const { data: myConvs } = await supabase
-        .from('conversation_members')
-        .select('conversation_id')
-        .eq('user_id', profile.id);
+    const { error: rpcError } = await supabase.rpc('create_conversation', {
+      p_type: payload.type,
+      p_title: payload.title,
+      p_group_id: payload.groupId,
+      p_member_ids: payload.memberIds,
+    });
 
-      if (myConvs && myConvs.length > 0) {
-        for (const mc of myConvs) {
-          const { data: otherMember } = await supabase
-            .from('conversation_members')
-            .select('conversation_id')
-            .eq('conversation_id', mc.conversation_id)
-            .eq('user_id', otherId)
-            .maybeSingle();
-          if (otherMember) {
-            const { data: conv } = await supabase
-              .from('conversations')
-              .select('*')
-              .eq('id', mc.conversation_id)
-              .eq('type', 'direct')
-              .maybeSingle();
-            if (conv) {
-              onCreated();
-              setCreating(false);
-              return;
-            }
-          }
-        }
-      }
-
-      const { data: conv, error } = await supabase
-        .from('conversations')
-        .insert({ type: 'direct', created_by: profile.id })
-        .select()
-        .single();
-      if (!error && conv) {
-        await supabase.from('conversation_members').insert([
-          { conversation_id: conv.id, user_id: profile.id, role: 'admin' },
-          { conversation_id: conv.id, user_id: otherId, role: 'member' },
-        ]);
-        onCreated();
-      }
-    } else {
-      if (selectedGroupId) {
-        // Gruppenchat für existierende Gruppe
-        const { data: conv, error } = await supabase
-          .from('conversations')
-          .insert({ type: 'group', group_id: selectedGroupId, title: groupTitle || null, created_by: profile.id })
-          .select()
-          .single();
-        if (!error && conv) {
-          // Alle Gruppenmitglieder hinzufügen
-          const { data: members } = await supabase
-            .from('group_memberships')
-            .select('user_id, role')
-            .eq('group_id', selectedGroupId);
-          if (members && members.length > 0) {
-            await supabase.from('conversation_members').insert(
-              members.map((m: Record<string, unknown>) => ({
-                conversation_id: conv.id,
-                user_id: m.user_id as string,
-                role: (m.role as string) === 'admin' ? 'admin' : 'member',
-              }))
-            );
-          } else {
-            await supabase.from('conversation_members').insert({
-              conversation_id: conv.id, user_id: profile.id, role: 'admin',
-            });
-          }
-          onCreated();
-        }
-      } else if (selectedUsers.size > 0) {
-        // Ad-hoc Gruppenchat
-        const { data: conv, error } = await supabase
-          .from('conversations')
-          .insert({ type: 'group', title: groupTitle || `Gruppe (${selectedUsers.size + 1})`, created_by: profile.id })
-          .select()
-          .single();
-        if (!error && conv) {
-          const allIds = [profile.id, ...Array.from(selectedUsers)];
-          await supabase.from('conversation_members').insert(
-            allIds.map((uid) => ({
-              conversation_id: conv.id,
-              user_id: uid,
-              role: uid === profile.id ? 'admin' : 'member',
-            }))
-          );
-          onCreated();
-        }
-      }
-    }
     setCreating(false);
+    if (rpcError) {
+      setError('Die Unterhaltung konnte nicht erstellt werden. Bitte versuche es erneut.');
+      return;
+    }
+    onCreated();
   }
 
   const filteredUsers = users.filter((u) => {
@@ -754,6 +689,10 @@ function NewChatDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
                 );
               })}
             </div>
+          )}
+
+          {error && (
+            <p className="text-sm text-red-600 mt-3 text-center">{error}</p>
           )}
 
           <button
