@@ -99,12 +99,17 @@ export default function ChatsScreen() {
         // Anderen Nutzer finden
         const { data: otherMember } = await supabase
           .from('conversation_members')
-          .select('user_id, profiles!inner(id, email, full_name, display_name, is_admin, is_approved, created_at)')
+          .select('user_id')
           .eq('conversation_id', conv.id)
           .neq('user_id', profile.id)
           .maybeSingle();
         if (otherMember) {
-          meta.other_user = (otherMember as Record<string, unknown>).profiles as Profile;
+          const { data: otherProfile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', otherMember.user_id)
+            .maybeSingle();
+          meta.other_user = (otherProfile as Profile | null) ?? undefined;
         }
       } else if (conv.group_id) {
         const { data: groupData } = await supabase
@@ -290,12 +295,13 @@ function ChatView({ conversation, onBack }: { conversation: ConversationWithMeta
   useEffect(() => {
     supabase
       .from('conversation_members')
-      .select('user_id, profiles!inner(id, email, full_name, display_name, is_admin, is_approved, created_at)')
+      .select('user_id')
       .eq('conversation_id', conversation.id)
-      .then(({ data }) => {
-        if (data) {
-          setOtherUsers(data.map((d: Record<string, unknown>) => d.profiles as Profile));
-        }
+      .then(async ({ data }) => {
+        const ids = (data ?? []).map((d: { user_id: string }) => d.user_id);
+        if (ids.length === 0) return;
+        const { data: profileData } = await supabase.from('profiles').select('*').in('id', ids);
+        setOtherUsers((profileData as Profile[]) ?? []);
       });
   }, [conversation.id]);
 
