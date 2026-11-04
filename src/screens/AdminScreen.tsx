@@ -9,6 +9,12 @@ import type { Group, Office, Profile } from '@/types/database';
 
 type View = 'overview' | 'group-detail';
 
+async function fetchProfiles(ids: string[]): Promise<Profile[]> {
+  if (ids.length === 0) return [];
+  const { data } = await supabase.from('profiles').select('*').in('id', ids);
+  return (data as Profile[]) ?? [];
+}
+
 export default function AdminScreen({ onBack }: { onBack: () => void }) {
   const { profile } = useAuth();
   const [view, setView] = useState<View>('overview');
@@ -180,17 +186,16 @@ function GroupDetail({
   const [busy, setBusy] = useState(false);
 
   const loadData = useCallback(async () => {
-    // Mitglieder laden
     const { data: memberData } = await supabase
       .from('group_memberships')
-      .select('id, user_id, role, profiles!inner(id, email, full_name, display_name, is_admin, is_approved, created_at)')
+      .select('id, user_id, role')
       .eq('group_id', group.id);
-
-    const mappedMembers = (memberData ?? []).map((m: Record<string, unknown>) => ({
-      ...(m.profiles as Profile),
-      membership_id: m.id as string,
-      role: m.role as 'admin' | 'member',
-    }));
+    const memberRows = (memberData ?? []) as { id: string; user_id: string; role: 'admin' | 'member' }[];
+    const memberProfiles = await fetchProfiles(memberRows.map((m) => m.user_id));
+    const mappedMembers = memberRows.flatMap((m) => {
+      const p = memberProfiles.find((x) => x.id === m.user_id);
+      return p ? [{ ...p, membership_id: m.id, role: m.role }] : [];
+    });
     setMembers(mappedMembers);
 
     // Ämter + Inhaber laden
@@ -204,9 +209,9 @@ function GroupDetail({
     for (const o of (officeData as Office[]) ?? []) {
       const { data: holderData } = await supabase
         .from('office_holders')
-        .select('user_id, profiles!inner(id, email, full_name, display_name, is_admin, is_approved, created_at)')
+        .select('user_id')
         .eq('office_id', o.id);
-      const holders = (holderData ?? []).map((h: Record<string, unknown>) => h.profiles as Profile);
+      const holders = await fetchProfiles((holderData ?? []).map((h: { user_id: string }) => h.user_id));
       officesWithHolders.push({ ...o, holders });
     }
     setOffices(officesWithHolders);
