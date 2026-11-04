@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Home, MessageCircle, CalendarDays, Wallet, Menu, X, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useProfileSheet } from '@/lib/profile-sheet';
+import ProfileSheetProvider from '@/components/ProfileSheetProvider';
+import UserAvatar from '@/components/UserAvatar';
 import HomeScreen from '@/screens/HomeScreen';
 import ChatsScreen from '@/screens/ChatsScreen';
 import CalendarScreen from '@/screens/CalendarScreen';
@@ -27,11 +30,19 @@ const tabs: { id: Tab; label: string; icon: typeof Home }[] = [
 ];
 
 export default function AppShell() {
+  return (
+    <ProfileSheetProvider>
+      <AppShellContent />
+    </ProfileSheetProvider>
+  );
+}
+
+function AppShellContent() {
   const [tab, setTab] = useState<Tab>('home');
   const [secondaryTab, setSecondaryTab] = useState<SecondaryTab>(null);
   const [overlay, setOverlay] = useState<Overlay>(null);
-  const { profile } = useAuth();
-  const greetingName = profile?.display_name || profile?.full_name || 'Clari';
+  const { profile, user } = useAuth();
+  const { openProfile } = useProfileSheet();
 
   function navigateToTab(newTab: Tab) {
     setSecondaryTab(null);
@@ -76,9 +87,13 @@ export default function AppShell() {
       <header className="sticky top-0 z-20 bg-cream-50/90 backdrop-blur-sm border-b border-cream-200">
         <div className="px-5 pt-5 pb-3 flex items-center justify-between">
           <h1 className="text-2xl font-display font-extrabold text-sage-900 tracking-tight">Clari</h1>
-          <div className="w-9 h-9 rounded-xl bg-brand-100 flex items-center justify-center text-brand-600 font-bold text-sm">
-            {greetingName.charAt(0).toUpperCase()}
-          </div>
+          <button
+            onClick={() => user && openProfile(user.id)}
+            aria-label="Mein Profil öffnen"
+            className="rounded-xl transition hover:opacity-80"
+          >
+            <UserAvatar profile={profile} size="sm" />
+          </button>
         </div>
       </header>
 

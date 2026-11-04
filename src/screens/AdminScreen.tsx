@@ -5,18 +5,16 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { fetchApprovedProfiles, fetchProfilesByIds, profileName } from '@/lib/profiles';
+import { useProfileSheet } from '@/lib/profile-sheet';
 import type { Group, Office, Profile } from '@/types/database';
+import UserAvatar from '@/components/UserAvatar';
 
 type View = 'overview' | 'group-detail';
 
-async function fetchProfiles(ids: string[]): Promise<Profile[]> {
-  if (ids.length === 0) return [];
-  const { data } = await supabase.from('profiles').select('*').in('id', ids);
-  return (data as Profile[]) ?? [];
-}
-
 export default function AdminScreen({ onBack }: { onBack: () => void }) {
   const { profile } = useAuth();
+  const { openProfile } = useProfileSheet();
   const [view, setView] = useState<View>('overview');
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
@@ -191,7 +189,7 @@ function GroupDetail({
       .select('id, user_id, role')
       .eq('group_id', group.id);
     const memberRows = (memberData ?? []) as { id: string; user_id: string; role: 'admin' | 'member' }[];
-    const memberProfiles = await fetchProfiles(memberRows.map((m) => m.user_id));
+    const memberProfiles = await fetchProfilesByIds(memberRows.map((m) => m.user_id));
     const mappedMembers = memberRows.flatMap((m) => {
       const p = memberProfiles.find((x) => x.id === m.user_id);
       return p ? [{ ...p, membership_id: m.id, role: m.role }] : [];
@@ -211,19 +209,14 @@ function GroupDetail({
         .from('office_holders')
         .select('user_id')
         .eq('office_id', o.id);
-      const holders = await fetchProfiles((holderData ?? []).map((h: { user_id: string }) => h.user_id));
+      const holders = await fetchProfilesByIds((holderData ?? []).map((h: { user_id: string }) => h.user_id));
       officesWithHolders.push({ ...o, holders });
     }
     setOffices(officesWithHolders);
 
     // Alle Nutzer für Auswahllisten laden (nur Admins)
     if (profile?.is_admin) {
-      const { data: userData } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, display_name, is_admin, is_approved, created_at')
-        .eq('is_approved', true)
-        .order('full_name');
-      setAllUsers((userData as Profile[]) ?? []);
+      setAllUsers(await fetchApprovedProfiles());
     }
 
     setLoading(false);
@@ -390,11 +383,9 @@ function GroupDetail({
                       disabled={busy}
                       className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-cream-100 transition text-left"
                     >
-                      <div className="w-9 h-9 rounded-xl bg-brand-100 flex items-center justify-center text-brand-600 font-bold text-sm shrink-0">
-                        {(u.display_name || u.full_name || u.email).charAt(0).toUpperCase()}
-                      </div>
+                      <UserAvatar profile={u} size="sm" />
                       <span className="font-semibold text-sage-900 text-sm truncate">
-                        {u.display_name || u.full_name || u.email}
+                        {profileName(u)}
                       </span>
                     </button>
                   ))}
@@ -410,13 +401,14 @@ function GroupDetail({
             {members.map((m) => (
               <div key={m.membership_id} className="card flex items-center justify-between gap-3 py-3.5">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-600 font-bold text-sm shrink-0">
-                    {(m.display_name || m.full_name || m.email).charAt(0).toUpperCase()}
-                  </div>
+                  <UserAvatar profile={m} size="md" />
                   <div className="min-w-0">
-                    <p className="font-semibold text-sage-900 truncate text-sm">
-                      {m.display_name || m.full_name || m.email}
-                    </p>
+                    <button
+                      onClick={() => openProfile(m.id)}
+                      className="font-semibold text-sage-900 truncate text-sm text-left hover:underline"
+                    >
+                      {profileName(m)}
+                    </button>
                     <button
                       onClick={() => toggleMemberRole(m)}
                       className={`text-xs flex items-center gap-1 mt-0.5 ${m.role === 'admin' ? 'text-brand-600' : 'text-sage-400'}`}
@@ -522,13 +514,14 @@ function GroupDetail({
                       <div className="space-y-2 mb-2">
                         {o.holders.map((h) => (
                           <div key={h.id} className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center text-brand-600 font-bold text-xs">
-                                {(h.display_name || h.full_name || h.email).charAt(0).toUpperCase()}
-                              </div>
-                              <span className="text-sm font-semibold text-sage-900">
-                                {h.display_name || h.full_name || h.email}
-                              </span>
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <UserAvatar profile={h} size="sm" />
+                              <button
+                                onClick={() => openProfile(h.id)}
+                                className="text-sm font-semibold text-sage-900 hover:underline truncate text-left"
+                              >
+                                {profileName(h)}
+                              </button>
                               <span className="text-xs text-sage-400">
                                 ({holderCount(h.id)} Ämter)
                               </span>
@@ -562,7 +555,7 @@ function GroupDetail({
                                 }`}
                               >
                                 <span className="font-semibold text-sage-900 truncate">
-                                  {m.display_name || m.full_name || m.email}
+                                  {profileName(m)}
                                 </span>
                                 {already ? (
                                   <ShieldCheck className="w-4 h-4 text-sage-400" />

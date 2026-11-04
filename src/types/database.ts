@@ -1,10 +1,11 @@
 export interface Profile {
   id: string;
-  email: string;
   full_name: string | null;
   display_name: string | null;
+  avatar_path: string | null;
   is_admin: boolean;
   is_approved: boolean;
+  show_email: boolean;
   created_at: string;
 }
 

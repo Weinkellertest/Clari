@@ -6,7 +6,11 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { PROFILE_COLUMNS, profileName } from '@/lib/profiles';
+import { useProfileSheet } from '@/lib/profile-sheet';
 import type { Profile, Group, Office } from '@/types/database';
+import UserAvatar from '@/components/UserAvatar';
+import MemberDirectory from '@/components/MemberDirectory';
 
 interface MoreScreenProps {
   onOpenAdmin: () => void;
@@ -24,6 +28,7 @@ export default function MoreScreen({
   onOpenLists, onOpenDuties, onNavigate,
 }: MoreScreenProps) {
   const { profile, user, signOut, refreshProfile } = useAuth();
+  const { openProfile } = useProfileSheet();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -37,7 +42,7 @@ export default function MoreScreen({
     setLoadingUsers(true);
     supabase
       .from('profiles')
-      .select('*')
+      .select(PROFILE_COLUMNS)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (!error && data) setUsers(data as Profile[]);
@@ -126,16 +131,15 @@ export default function MoreScreen({
       <h2 className="text-2xl font-display font-bold text-sage-900 mb-5">Mehr</h2>
 
       {/* Profil */}
-      <div className="card mb-5">
+      <button onClick={() => user && openProfile(user.id)} className="card w-full mb-5 text-left hover:bg-cream-50 transition">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 rounded-2xl bg-brand-100 flex items-center justify-center text-brand-600 font-bold text-lg">
-            {(profile?.display_name || profile?.full_name || profile?.email || '?').charAt(0).toUpperCase()}
-          </div>
+          <UserAvatar profile={profile} size="md" />
           <div className="min-w-0">
             <p className="font-semibold text-sage-900 truncate">
-              {profile?.display_name || profile?.full_name || 'Nutzer'}
+              {profile ? profileName(profile) : 'Nutzer'}
             </p>
-            <p className="text-sm text-sage-400 truncate">{profile?.email}</p>
+            <p className="text-sm text-sage-400 truncate">{user?.email}</p>
+            <p className="text-xs text-brand-700 mt-1">Profil & Einstellungen</p>
           </div>
         </div>
         {isAdmin && (
@@ -143,8 +147,7 @@ export default function MoreScreen({
             <ShieldCheck className="w-4 h-4" /> Administrator
           </div>
         )}
-      </div>
-
+      </button>
       {/* Schnellzugriff auf Hauptbereiche */}
       <div className="mb-5">
         <h3 className="font-display font-bold text-sage-900 mb-3">Bereiche</h3>
@@ -180,6 +183,15 @@ export default function MoreScreen({
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Mitglieder */}
+      <div className="mb-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Users className="w-5 h-5 text-sage-700" />
+          <h3 className="font-display font-bold text-sage-900">Mitglieder</h3>
+        </div>
+        <MemberDirectory />
       </div>
 
       {/* Meine Gruppen */}
@@ -256,9 +268,12 @@ export default function MoreScreen({
               {users.map((p) => (
                 <div key={p.id} className="card flex items-center justify-between gap-3 py-3.5">
                   <div className="min-w-0">
-                    <p className="font-semibold text-sage-900 truncate text-sm">
-                      {p.full_name || p.email}
-                    </p>
+                    <button
+                      onClick={() => openProfile(p.id)}
+                      className="font-semibold text-sage-900 truncate text-sm text-left hover:underline"
+                    >
+                      {profileName(p)}
+                    </button>
                     <div className="flex items-center gap-2 mt-0.5">
                       {p.is_approved ? (
                         <span className="text-xs text-sage-600 flex items-center gap-1">

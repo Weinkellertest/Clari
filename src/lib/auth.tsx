@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, type React
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/types/database';
+import { PROFILE_COLUMNS } from '@/lib/profiles';
 
 interface AuthState {
   session: Session | null;
@@ -31,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     while (attempts < 5) {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select(PROFILE_COLUMNS)
         .eq('id', uid)
         .maybeSingle();
 
